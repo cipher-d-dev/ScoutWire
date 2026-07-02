@@ -1,0 +1,27 @@
+# Secrets — never commit these
+.env
+
+# Telethon session files contain auth credentials
+*.session
+*.session-journal
+session/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
