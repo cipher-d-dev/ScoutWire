@@ -49,8 +49,8 @@ class Settings:
     GROQ_API_KEY: str
     GROQ_MODEL: str
 
-    # --- Tavily search (from https://app.tavily.com) ---
-    TAVILY_API_KEY: str
+    # --- Serper search (from https://serper.dev) ---
+    SERPER_API_KEY: str
 
     # --- Bot targeting ---
     TARGET_CHAT: int       # numeric Telegram chat/channel ID
@@ -65,7 +65,7 @@ def _load_settings() -> Settings:
         TELEGRAM_PHONE=_require("TELEGRAM_PHONE"),
         GROQ_API_KEY=_require("GROQ_API_KEY"),
         GROQ_MODEL=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-        TAVILY_API_KEY=_require("TAVILY_API_KEY"),
+        SERPER_API_KEY=_require("SERPER_API_KEY"),
         TARGET_CHAT=_require_int("TARGET_CHAT"),
         QUIZMASTER_USER_ID=_require_int("QUIZMASTER_USER_ID"),
     )
