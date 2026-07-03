@@ -1,126 +1,138 @@
 # ScoutWire — Telegram Football Quiz Answer Bot
 
-A personal, local-only tool that monitors a Telegram quiz chat, detects questions posted by a designated quizmaster, asks Groq's LLM for an answer, and displays it in a fast browser UI — ready to copy and paste into Telegram in under a second.
+ScoutWire watches a Telegram quiz chat, detects questions posted by the quizmaster, asks Groq's AI for an answer, and shows it in your browser — ready to copy and paste into Telegram in under a second.
 
-> **This is a single-user tool for local use. It never sends any message automatically.**
-> All answers are copy-pasted manually. See the [ToS note](#important--telegram-tos-note) below.
-
----
-
-## Contents
-
-1. [How it works](#how-it-works)
-2. [Requirements](#requirements)
-3. [Getting credentials](#getting-credentials)
-4. [Installation](#installation)
-5. [First-run setup](#first-run-setup)
-6. [Running the bot](#running-the-bot)
-7. [Using the UI](#using-the-ui)
-8. [Architecture decisions](#architecture-decisions)
-9. [Troubleshooting](#troubleshooting)
-10. [Important — Telegram ToS note](#important--telegram-tos-note)
+> **This tool never sends any message automatically. You always copy-paste the answer yourself.**
 
 ---
 
-## How it works
+## What happens when it runs
 
 ```
-Telegram chat
-    │  quizmaster sends "15. Which club won the 1999-2000 La Liga?"
-    ▼
-Telethon (userbot — listens as you)
-    │  sender ID matches QUIZMASTER_USER_ID?
-    ▼
-Groq API  ──streaming──►  answer in ~300-600ms
-    ▼
-WebSocket push
-    ▼
-Browser UI  →  tap to copy  →  paste into Telegram
+Quizmaster posts a question in Telegram
+    ↓
+ScoutWire detects it (only quizmaster messages trigger this)
+    ↓  [log] 📨 [1/3] Quizmaster message received | Q15 from Dave
+    ↓  [log] 🤖 [2/3] Sending to Groq (llama-3.1-8b-instant) …
+    ↓  [log]    ↳ Groq responded in 380ms
+    ↓  [log] ✅ [3/3] Answer ready | Q15 → Real Madrid won La Liga in 1999-2000...
+    ↓
+Browser UI shows the answer — tap to copy — paste into Telegram
 ```
 
-Detection is **sender-based**: any message from the configured quizmaster in the target chat is treated as a question. No keyword matching, no LLM classification — this cannot misfire on ordinary football chat.
+---
+
+## Before you start — install Python
+
+If you have never used Python before:
+
+1. Go to [https://www.python.org/downloads/](https://www.python.org/downloads/) and download the latest **Python 3.11+** installer for Windows.
+2. Run the installer. **On the first screen, tick "Add Python to PATH"** before clicking Install. This is important — without it, nothing will work.
+3. Open a new Command Prompt (search "cmd" in the Start menu) and verify it worked:
+   ```
+   python --version
+   ```
+   You should see something like `Python 3.13.x`. If you get an error, you missed the PATH step — re-run the installer and tick it.
 
 ---
 
-## Requirements
+## Step 1 — Get your credentials
 
-- Python 3.11+
-- A Telegram account (your own — this is a userbot, not a BotFather bot)
-- A free [Groq API key](https://console.groq.com)
-- Internet connection
+You need three things before running ScoutWire:
 
----
-
-## Getting credentials
-
-### Telegram API credentials
+### A. Telegram API credentials
 
 1. Go to [https://my.telegram.org](https://my.telegram.org) and log in with your phone number.
 2. Click **"API development tools"**.
-3. Create an app (name and platform don't matter — use anything).
-4. Copy your **App api_id** (a number) and **App api_hash** (a hex string).
+3. Create an app — the name and platform don't matter, use anything.
+4. You'll see two values: **App api_id** (a number like `12345678`) and **App api_hash** (a long hex string). Copy both.
 
-### Groq API key
+### B. Groq API key
 
-1. Go to [https://console.groq.com](https://console.groq.com) and sign up (free).
-2. Navigate to **API Keys** → **Create API Key**.
+1. Go to [https://console.groq.com](https://console.groq.com) and sign up — it's free.
+2. Click **API Keys** → **Create API Key**.
 3. Copy the key — it starts with `gsk_`.
+
+### C. Your phone number
+
+Your own Telegram phone number in international format, e.g. `+2348012345678` (no spaces).
 
 ---
 
-## Installation
+## Step 2 — Set up the project
 
-```bash
-git clone <your-repo-url>
-cd telegram-quiz-bot
+Open Command Prompt, navigate to the ScoutWire folder, and install dependencies:
 
+```
+cd C:\Users\YourName\Desktop\ScoutWire
 pip install -r requirements.txt
 ```
 
-Copy the example env file and fill it in:
+> `pip` is Python's package installer — it downloads all the libraries ScoutWire needs. This only needs to be done once.
 
-```bash
-cp .env.example .env
+Then copy the example config file and fill it in:
+
+```
+copy .env.example .env
 ```
 
-Open `.env` in any text editor and fill in all six values. See the comments in `.env.example` for exactly what goes where.
+Open `.env` in Notepad (or any text editor) and fill in your values:
+
+```
+TELEGRAM_API_ID=12345678
+TELEGRAM_API_HASH=your_api_hash_here
+TELEGRAM_PHONE=+2348012345678
+GROQ_API_KEY=gsk_your_groq_key_here
+GROQ_MODEL=llama-3.1-8b-instant
+TARGET_CHAT=-1001234567890
+QUIZMASTER_USER_ID=987654321
+```
+
+You'll fill in `TARGET_CHAT` and `QUIZMASTER_USER_ID` in the next two steps.
 
 ---
 
-## First-run setup
+## Step 3 — Find the quiz group's chat ID
 
-You need two pieces of information before the bot can filter correctly:
-the **chat ID** of the quiz group, and the **user ID** of the quizmaster.
+Run this script to list all Telegram chats your account can see:
 
-### Step 1 — Find the chat ID
-
-```bash
+```
 python scripts/list_chats.py
 ```
 
-This logs in (triggering the phone code prompt on first run — see below), then
-prints every chat your account can see with its numeric ID:
+The first time you run any script, Telethon will ask you to log in:
+
+```
+Please enter your phone (or bot token): +2348012345678
+Please enter the code you received: 12345
+```
+
+Enter your phone number, then enter the code Telegram sends you via SMS or the Telegram app. If you have 2-step verification enabled, you'll also be asked for your cloud password.
+
+After login, you'll see a list like:
 
 ```
                ID  Name
 ------------------------------------------------------------
   -1001234567890  Football Quiz Championship
        987654321  John (DM)
-             ...
 ```
 
-Copy the ID of the quiz group (it will be a large negative number for groups/channels)
-and set it as `TARGET_CHAT` in `.env`.
+Copy the ID of your quiz group (it will be a large negative number for groups). Set it as `TARGET_CHAT` in `.env`.
 
-### Step 2 — Find the quizmaster's user ID
+> Your login is saved to `session/user.session`. You won't be asked to log in again.
 
-```bash
+---
+
+## Step 4 — Find the quizmaster's user ID
+
+Run this to watch who sends messages in the chat:
+
+```
 python scripts/list_senders.py -1001234567890 120
 ```
 
-Replace `-1001234567890` with your `TARGET_CHAT`. This listens for 120 seconds
-and prints every sender's numeric ID and display name as messages arrive.
-Ask the quizmaster to send any message during the window, or wait for them to post naturally.
+Replace `-1001234567890` with your actual `TARGET_CHAT`. This listens for 120 seconds and prints every sender's numeric ID and name as messages arrive. Ask the quizmaster to send a message during the window.
 
 ```
 Listening on chat -1001234567890 for 120s …
@@ -134,147 +146,78 @@ Ask the quizmaster to send a message now.
 
 Copy the quizmaster's numeric ID and set it as `QUIZMASTER_USER_ID` in `.env`.
 
-**Why numeric ID and not @username?** Usernames can be changed by the account
-holder at any time. A renamed quizmaster account would silently break the filter.
-Numeric IDs are permanent and cannot be reassigned.
-
-### Step 3 — First-run Telegram login
-
-The first time any script or the main bot connects, Telethon will prompt:
-
-```
-Please enter your phone (or bot token): +447700900000
-Please enter the code you received: 12345
-```
-
-Enter your phone number in E.164 format (e.g. `+447700900000`), then enter
-the verification code Telegram sends. If your account has 2FA enabled, you'll
-also be prompted for your cloud password.
-
-Your session is saved to `session/user.session`. Subsequent runs skip this step entirely.
+> We use the numeric ID instead of @username because usernames can be changed, which would silently break the filter. Numeric IDs are permanent.
 
 ---
 
-## Running the bot
+## Step 5 — Run ScoutWire
 
-```bash
+```
 python -m backend.main
 ```
 
-This starts both the Telegram listener and the web server together in one process.
+You'll see startup logs in the terminal:
+
+```
+03:05:11 [INFO] uvicorn — Started server process
+03:05:11 [INFO] uvicorn — Waiting for application startup.
+03:05:13 [INFO] Telegram: logged in. Monitoring chat -1001234567890
+```
+
 Open your browser to:
 
 ```
 http://localhost:8000
 ```
 
-For development (auto-reload on code changes — restarts Telegram login each time,
-so prefer the above for normal use):
+Click **"Start Listening"** in the browser. Now when the quizmaster posts a question, you'll see this in the terminal:
 
-```bash
-uvicorn backend.main:app --reload
+```
+03:07:42 [INFO] 📨 [1/3] Quizmaster message received | Q15 from QuizMaster Dave (ID 111222333)
+03:07:42 [INFO]         Question: Which club won the 1999-2000 La Liga?
+03:07:42 [INFO] 🤖 [2/3] Sending to Groq (llama-3.1-8b-instant) …
+03:07:42 [INFO]    ↳ Groq responded in 380ms
+03:07:42 [INFO] ✅ [3/3] Answer ready | Q15 → Real Madrid won the 1999-2000 La Liga title.
 ```
 
----
+And the answer appears in your browser immediately — tap to copy, paste into Telegram.
 
-## Using the UI
-
-**Status bar (top):** Green dot = WebSocket connected. If it goes red, the UI
-reconnects automatically — no action needed.
-
-**Start / Stop button:** Tap to toggle whether incoming quizmaster messages get
-processed. The dot pulses green when listening is active.
-
-**Latest answer card:** The most recent answer appears here, large and readable.
-Tap anywhere on the card to copy the answer to clipboard. A green flash confirms
-the copy. If the answer is rate-limited (amber border, "RATE LIMITED" badge),
-it means Groq temporarily throttled the request — wait a moment and manually
-retry by checking the question number and re-asking if needed.
-
-**History:** All answered questions for the current session, newest at top,
-each with its own Copy button. Loads from the server on page open and updates
-live as new answers arrive.
-
-**Mobile use:** Open `http://<your-local-ip>:8000` on your phone (same Wi-Fi).
-The UI is designed for one-tap copy under time pressure — large tap targets,
-minimal chrome.
-
----
-
-## Architecture decisions
-
-### Sender-based detection (not keyword/LLM)
-
-The quizmaster filter checks `sender_id == QUIZMASTER_USER_ID` and nothing else.
-This is intentional:
-
-- **Cannot misfire** on ordinary football chat, banter, or score disputes.
-- **Zero cost** — a single integer comparison, no API calls for non-quizmaster messages.
-- **Simple to debug** — either the ID matches or it doesn't.
-
-The trade-off: if multiple people ever take turns asking questions, you'd need
-to update `QUIZMASTER_USER_ID` (or extend the config to a list). That's a one-line
-change if the quiz format ever changes.
-
-### Single asyncio event loop (Telethon + Uvicorn)
-
-Both the Telegram client and the web server run in one `asyncio.gather()` loop.
-This avoids thread synchronisation and means the WebSocket push happens in the
-same coroutine that just received the LLM answer — no queues, no locks for the
-happy path.
-
-### Streaming LLM responses
-
-`get_answer()` uses Groq's `stream: true` endpoint. The first token arrives in
-~150ms; the answer is assembled as chunks land. This is faster than waiting for
-a complete response and is why end-to-end latency is typically 300-600ms.
-
-### No persistence
-
-History resets on restart. This is intentional — quizzes are ephemeral, and
-persisting history adds complexity for zero practical benefit in a local tool.
+To stop the bot, press **Ctrl+C** in the terminal.
 
 ---
 
 ## Troubleshooting
 
+**`python` is not recognized as a command**
+You didn't tick "Add Python to PATH" during installation. Re-run the Python installer, choose "Modify", and tick the PATH option.
+
+**`pip install` gives an error about permissions**
+Try: `pip install --user -r requirements.txt`
+
 **`Missing required environment variable: X`**
-Open `.env` and make sure every variable is set with no quotes around values.
+Open `.env` and make sure every variable has a value. No quotes needed around values.
 
 **`SessionPasswordNeededError` during login**
-Your Telegram account has 2FA enabled. Enter your cloud password when prompted.
+Your Telegram account has 2-step verification. Enter your cloud password when prompted.
 
-**The UI shows "Reconnecting…" and never connects**
-Make sure `python -m backend.main` is running. The WebSocket endpoint is served
-by the same process — it won't work with `uvicorn backend.main:app` alone if
-the Telegram client failed to start.
+**The browser shows "Reconnecting…" and never connects**
+The backend isn't running. Make sure `python -m backend.main` is running in the terminal and there are no errors printed.
 
-**Answers are coming from the wrong person / false positives**
-Double-check `QUIZMASTER_USER_ID` in `.env`. Run `scripts/list_senders.py` again
-to confirm the numeric ID. Make sure you're using the ID, not a username.
-
-**Groq returns wrong or hallucinated answers**
-The model is `llama-3.1-8b-instant` by default — fast but not infallible on obscure
-stats. Set `GROQ_MODEL=llama3-70b-8192` in `.env` for a more accurate (but slower)
-model, or check the Groq console for other available models.
+**Answers are coming from the wrong person**
+Double-check `QUIZMASTER_USER_ID` in `.env`. Run `scripts/list_senders.py` again and confirm the numeric ID.
 
 **`ModuleNotFoundError: No module named 'telethon'`**
-Run `pip install -r requirements.txt` from inside the `telegram-quiz-bot/` directory.
+Run `pip install -r requirements.txt` from inside the ScoutWire folder.
 
 ---
 
-## Important — Telegram ToS note
+## Telegram ToS note
 
-This bot operates as a **userbot** — it authenticates as your personal Telegram
-account using the MTProto API, not as a bot created via BotFather.
+ScoutWire operates as a **userbot** — it uses your personal Telegram account to read messages, not a BotFather bot.
 
-Telegram's Terms of Service restrict automated actions on personal accounts.
-This tool is designed to stay within acceptable use:
-
+It stays within acceptable use because:
 - It is **strictly read-only** — it never sends, forwards, or reacts to any message.
-- All responses are **manually copy-pasted** by the user.
-- It runs **locally on your own machine** for personal use only.
-- It makes **one LLM API call per question** from the quizmaster — very low volume.
+- All responses are **manually copy-pasted** by you.
+- It runs **locally on your machine** only.
 
-You are responsible for ensuring your use complies with Telegram's ToS.
-Do not modify this tool to send messages automatically.
+You are responsible for ensuring your use complies with Telegram's Terms of Service.

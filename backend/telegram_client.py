@@ -94,30 +94,24 @@ async def _answer_question(
     from backend.state import bot_state
 
     number, question = parse_question(text)
+    q_label = f"Q{number}" if number is not None else "Q?"
 
-    log.info(
-        "QUIZMASTER [%d] %s | Q%s: %r",
-        sender_id,
-        sender_name,
-        f"{number}" if number is not None else "?",
-        question,
-    )
+    from backend.config import settings as _settings
+
+    # Step 1 — quizmaster message received
+    log.info("📨 [1/3] Quizmaster message received | %s from %s (ID %d)", q_label, sender_name, sender_id)
+    log.info("        Question: %s", question)
+
+    # Step 2 — sending to Groq
+    log.info("🤖 [2/3] Sending to Groq (%s) …", _settings.GROQ_MODEL)
 
     answer = await get_answer(question)
 
+    # Step 3 — answer received, push to browser
     entry = bot_state.add_entry(number=number, question=question, answer=answer)
-
-    # Push to all connected browser clients immediately.
     await broadcaster.push(entry)
 
-    # Console output — secondary feedback, useful when browser isn't open.
-    print(
-        f"\n{'='*60}\n"
-        f"  Q{entry.number if entry.number is not None else '?'}: {entry.question}\n"
-        f"  A: {entry.answer}\n"
-        f"  [{entry.timestamp}]\n"
-        f"{'='*60}\n"
-    )
+    log.info("✅ [3/3] Answer ready | %s → %s", q_label, answer[:120])
 
 
 async def _run_listener() -> None:

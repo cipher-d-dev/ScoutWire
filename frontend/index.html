@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>ScoutWire</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     /* ── Reset & base ─────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -21,7 +24,7 @@
       --amber:      #f59e0b;   /* rate-limited answer */
       --copy-flash: #22c55e;
       --radius:     10px;
-      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
     html, body {
@@ -32,6 +35,7 @@
       font-size: 16px;
       line-height: 1.5;
       -webkit-tap-highlight-color: transparent;
+      letter-spacing: -0.01em;
     }
 
     /* ── Layout ───────────────────────────────────────────────────── */
@@ -203,11 +207,12 @@
     }
 
     #latest-answer {
-      font-size: 1.15rem;
-      font-weight: 600;
+      font-size: 1.6rem;
+      font-weight: 700;
       color: var(--text);
-      line-height: 1.45;
+      line-height: 1.3;
       word-break: break-word;
+      letter-spacing: -0.02em;
     }
 
     #latest-card.rate-limited #latest-answer {
@@ -501,6 +506,19 @@ function showLatest(entry) {
 
   card.classList.add("visible");
 
+  // Auto-copy answer to clipboard
+  copyText(entry.answer).then(ok => {
+    if (ok) {
+      flashElement(document.getElementById("copy-area"));
+      conf.classList.add("show");
+      setTimeout(() => conf.classList.remove("show"), 1800);
+    }
+  });
+
+  // Chrome notification
+  const qLabel = entry.number !== null ? `Q${entry.number}` : "Answer";
+  sendNotification(qLabel, entry.answer);
+
   // Scroll to top so the latest card is always in view on mobile
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -667,8 +685,31 @@ function setWsStatus(connected) {
   }
 }
 
+// ── Notifications ─────────────────────────────────────────────────────────
+
+function requestNotificationPermission() {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+}
+
+function sendNotification(title, body) {
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+  const n = new Notification(`ScoutWire — ${title}`, {
+    body,
+    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%233b82f6'/><text x='16' y='21' text-anchor='middle' font-size='16' fill='white'>⚽</text></svg>",
+    tag: "scouter-answer",   // replaces previous notification rather than stacking
+    silent: false,
+  });
+  // Auto-close after 6s
+  setTimeout(() => n.close(), 6000);
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────
 
+requestNotificationPermission();
 loadStatus();
 connectWS();
 </script>
