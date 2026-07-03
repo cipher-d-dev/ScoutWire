@@ -2,17 +2,17 @@
 backend/llm_client.py
 
 Three-step answer engine:
-  1. _build_search_query  — LLM converts verbose question to a tight 5-8 word query
-  2. _serper_search       — Searches Google via Serper.dev (2500 free searches)
-  3. _extract_answer      — LLM reads snippets and returns a one-phrase answer
+  1. Smart query builder  — extracts noun phrases, drops years that may be wrong
+  2. _serper_search       — searches Google via Serper.dev (2500 free searches)
+  3. _extract_answer      — LLM reads snippets with quiz context and returns answer
 
 async get_answer(question: str) -> str
 """
 
-import asyncio
 import re
 import time
 import logging
+from collections import deque
 
 import httpx
 
@@ -23,6 +23,9 @@ _SERPER_URL = "https://google.serper.dev/search"
 _TIMEOUT    = httpx.Timeout(15.0)
 _MAX_TOKENS = 40
 _MODEL      = "llama-3.3-70b-versatile"
+
+# Track last 5 questions to infer quiz theme for the extraction prompt
+_recent_questions: deque = deque(maxlen=5)
 
 
 # ---------------------------------------------------------------------------
@@ -39,45 +42,36 @@ class _HttpError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Step 1 — Convert question to tight search query
+# Step 1 — Build a focused search query without using an LLM call
 # ---------------------------------------------------------------------------
 
-async def _build_search_query(client: httpx.AsyncClient, question: str) -> str:
+# Words to strip from the question before searching
+_STOP_WORDS = {
+    "who", "what", "which", "where", "when", "how", "many", "is", "was",
+    "are", "were", "the", "a", "an", "in", "of", "for", "to", "and", "or",
+    "that", "this", "their", "his", "her", "its", "by", "with", "from",
+    "has", "have", "had", "did", "does", "do", "be", "been", "after",
+    "before", "during", "at", "on", "ever", "also", "but", "not", "no",
+    "made", "made", "headlines", "club", "team", "player", "manager",
+}
+
+def _build_search_query(question: str) -> str:
     """
-    Ask the LLM to distil the trivia question into a focused 5-8 word
-    Google search query. Avoids sending wrong years or verbose phrasing
-    directly to Serper.
+    Build a focused search query by preserving key football phrases,
+    stripping stop words, and dropping years (often wrong in trivia questions).
     """
-    from backend.config import settings
+    q = question.replace("**", "").replace("*", "").strip()
+    q = re.sub(r'^\d+\.\s*', '', q)
 
-    payload = {
-        "model": _MODEL,
-        "max_tokens": 20,
-        "temperature": 0,
-        "messages": [{
-            "role": "user",
-            "content": (
-                f"Convert this football trivia question into a short Google search query "
-                f"(5-8 words, key facts only, no question words):\n\n{question}\n\nSearch query:"
-            ),
-        }],
-    }
-    headers = {
-        "Authorization": f"Bearer {settings.GROQ_API_KEY}",
-        "Content-Type":  "application/json",
-    }
+    # Drop years — they're often wrong in quiz questions
+    q = re.sub(r'\b(19|20)\d{2}\b', '', q)
 
-    try:
-        r = await client.post(_GROQ_URL, json=payload, headers=headers)
-        if r.status_code == 200:
-            raw = r.json()["choices"][0]["message"].get("content", "").strip()
-            query = raw.strip('"').strip("'").strip()
-            if query:
-                return f"football {query}"
-    except Exception:
-        pass
+    # Remove punctuation and stop words, keep meaningful tokens
+    tokens = re.findall(r"[\w'-]+", q)
+    filtered = [t for t in tokens if t.lower() not in _STOP_WORDS and len(t) > 1]
 
-    return f"football soccer {question}"
+    query = " ".join(filtered).strip()
+    return f"football {query}"
 
 
 # ---------------------------------------------------------------------------
@@ -85,16 +79,12 @@ async def _build_search_query(client: httpx.AsyncClient, question: str) -> str:
 # ---------------------------------------------------------------------------
 
 async def _serper_search(client: httpx.AsyncClient, query: str) -> str:
-    """
-    Search Google via Serper.dev and return a plain-text summary.
-    Prioritises the answer box, then knowledge graph, then organic snippets.
-    """
     from backend.config import settings
 
     try:
         response = await client.post(
             _SERPER_URL,
-            json={"q": query, "num": 5, "gl": "us", "hl": "en"},
+            json={"q": query, "num": 6, "gl": "us", "hl": "en"},
             headers={
                 "X-API-KEY":    settings.SERPER_API_KEY,
                 "Content-Type": "application/json",
@@ -132,21 +122,35 @@ async def _serper_search(client: httpx.AsyncClient, query: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 3 — Extract answer from search results
+# Step 3 — Extract answer using quiz context
 # ---------------------------------------------------------------------------
 
-async def _extract_answer(client: httpx.AsyncClient, question: str, search_results: str) -> str:
-    """
-    Pass the question and search snippets to the LLM and get a one-phrase answer.
-    """
+async def _extract_answer(
+    client: httpx.AsyncClient,
+    question: str,
+    search_results: str,
+    recent_qs: list[str],
+) -> str:
     from backend.config import settings
 
+    # Build context hint from recent questions
+    context_hint = ""
+    if recent_qs:
+        context_hint = (
+            f"Context: This question is from a quiz. "
+            f"Recent questions in this quiz: {'; '.join(recent_qs[-3:])}. "
+            f"Use this to resolve any ambiguity (e.g. if recent questions mention La Liga, prefer La Liga answers).\n\n"
+        )
+
     prompt = (
-        f"You are a football trivia assistant. Use ONLY the search results below to answer.\n"
+        f"You are a football trivia assistant. Answer the question using the search results below.\n"
+        f"{context_hint}"
         f"Reply with ONLY the answer — name, club, number, or short phrase. No sentences.\n"
-        f"If multiple answers are possible, use the question's own context (competition, year, country) "
-        f"to pick the most relevant one.\n"
-        f"If the search results don't contain a clear answer, reply: Not sure\n\n"
+        f"If multiple answers are possible, use the question context to pick the most relevant one.\n"
+        f"Rules:\n"
+        f"- If the search results contain the answer clearly, use it.\n"
+        f"- If the search results are vague but you know the answer confidently from your own knowledge, use that.\n"
+        f"- Only reply 'Not sure' if you genuinely don't know and the search results don't help.\n\n"
         f"Question: {question}\n\n"
         f"Search results:\n{search_results}\n\n"
         f"Answer:"
@@ -170,7 +174,6 @@ async def _extract_answer(client: httpx.AsyncClient, question: str, search_resul
             response.headers.get("retry-after")
             or response.headers.get("x-ratelimit-reset-requests")
         )
-
     if response.status_code != 200:
         log.error("Groq HTTP %d — %s", response.status_code, response.text[:200])
         raise _HttpError(response.status_code)
@@ -183,26 +186,26 @@ async def _extract_answer(client: httpx.AsyncClient, question: str, search_resul
 # ---------------------------------------------------------------------------
 
 async def get_answer(question: str) -> str:
-    """
-    Searches Google via Serper, then extracts the answer with llama-3.3-70b.
-    Always uses live search — never relies on training data alone.
-    """
     t0 = time.perf_counter()
 
     clean_q = question.replace("**", "").replace("*", "").strip()
     clean_q = re.sub(r'^\d+\.\s*', '', clean_q).strip()
 
+    # Track for context
+    _recent_questions.append(clean_q)
+    recent_qs = list(_recent_questions)[:-1]  # all but current
+
+    search_query = _build_search_query(clean_q)
+    log.info("   ↳ Searching: %r", search_query[:80])
+
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-
-            search_query = await _build_search_query(client, clean_q)
-            log.info("   ↳ Searching: %r", search_query[:80])
 
             search_results = await _serper_search(client, search_query)
             elapsed_search = (time.perf_counter() - t0) * 1000
             log.info("   ↳ Search done in %.0fms — extracting answer", elapsed_search)
 
-            answer = await _extract_answer(client, clean_q, search_results)
+            answer = await _extract_answer(client, clean_q, search_results, recent_qs)
 
         elapsed_total = (time.perf_counter() - t0) * 1000
         log.info("   ↳ Done in %.0fms — answer: %r", elapsed_total, answer[:80])
