@@ -1,8 +1,8 @@
-# ScoutWire — Telegram Football Quiz Answer Bot
+# ScoutWire — Headless Football Quiz Assistant
 
-ScoutWire watches a Telegram quiz chat, detects questions posted by the quizmaster, asks Groq's AI for an answer, and shows it in your browser — ready to copy and paste into Telegram in under a second.
+ScoutWire watches a Telegram quiz chat, detects questions from the quizmaster, and gets an answer in under a second using Gemini 2.5 Flash. The answer is automatically copied to your clipboard. Press **F9** in any window to type it.
 
-> **This tool never sends any message automatically. You always copy-paste the answer yourself.**
+> **ScoutWire never sends any message. You always paste the answer yourself.**
 
 ---
 
@@ -13,103 +13,108 @@ Quizmaster posts a question in Telegram
     ↓
 ScoutWire detects it (only quizmaster messages trigger this)
     ↓  [log] 📨 [1/3] Quizmaster message received | Q15 from Dave
-    ↓  [log] 🤖 [2/3] Sending to Groq (llama-3.1-8b-instant) …
-    ↓  [log]    ↳ Groq responded in 380ms
-    ↓  [log] ✅ [3/3] Answer ready | Q15 → Real Madrid won La Liga in 1999-2000...
+    ↓  [log] 🤖 [2/3] Sending to answer engine …
+    ↓  [log]    ✅ Gemini responded in 487ms → 'Real Madrid'
+    ↓  [log] ✅ [3/3] Answer ready | Q15 → Real Madrid
+    ↓  [log] 📋 Copied to clipboard — press F9 in Telegram to paste.
     ↓
-Browser UI shows the answer — tap to copy — paste into Telegram
+Press F9 → answer is typed into Telegram instantly
 ```
+
+### Answer engine (primary → fallback)
+
+1. **Gemini 2.5 Flash** — fast, highly accurate, recent knowledge. Used for ~95% of questions.
+2. **Serper web search → Groq 70b** — fires only if Gemini times out or errors. Grounds the answer in live search results.
 
 ---
 
 ## Before you start — install Python
 
-If you have never used Python before:
-
-1. Go to [https://www.python.org/downloads/](https://www.python.org/downloads/) and download the latest **Python 3.11+** installer for Windows.
-2. Run the installer. **On the first screen, tick "Add Python to PATH"** before clicking Install. This is important — without it, nothing will work.
-3. Open a new Command Prompt (search "cmd" in the Start menu) and verify it worked:
+1. Go to [https://www.python.org/downloads/](https://www.python.org/downloads/) and download Python 3.11+.
+2. Run the installer. **Tick "Add Python to PATH"** on the first screen.
+3. Verify in a new Command Prompt:
    ```
    python --version
    ```
-   You should see something like `Python 3.13.x`. If you get an error, you missed the PATH step — re-run the installer and tick it.
 
 ---
 
 ## Step 1 — Get your credentials
 
-You need three things before running ScoutWire:
-
 ### A. Telegram API credentials
+1. Go to [https://my.telegram.org](https://my.telegram.org) and log in.
+2. Click **"API development tools"** → create an app (any name).
+3. Copy your **App api_id** and **App api_hash**.
 
-1. Go to [https://my.telegram.org](https://my.telegram.org) and log in with your phone number.
-2. Click **"API development tools"**.
-3. Create an app — the name and platform don't matter, use anything.
-4. You'll see two values: **App api_id** (a number like `12345678`) and **App api_hash** (a long hex string). Copy both.
+### B. Gemini API key (primary LLM)
+1. Go to [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
+2. Click **Create API key**.
+3. Copy the key — it starts with `AIzaSy`.
 
-### B. Groq API key
-
-1. Go to [https://console.groq.com](https://console.groq.com) and sign up — it's free.
+### C. Groq API key (fallback LLM)
+1. Go to [https://console.groq.com](https://console.groq.com) and sign up — free.
 2. Click **API Keys** → **Create API Key**.
 3. Copy the key — it starts with `gsk_`.
 
-### C. Your phone number
+### D. Serper API key (fallback web search)
+1. Go to [https://serper.dev](https://serper.dev) and sign up — 2500 free searches.
+2. Copy your API key from the dashboard.
 
-Your own Telegram phone number in international format, e.g. `+2348012345678` (no spaces).
+### E. Your phone number
+Your Telegram phone number in international format, e.g. `+2348012345678`.
 
 ---
 
 ## Step 2 — Set up the project
-
-Open Command Prompt, navigate to the ScoutWire folder, and install dependencies:
 
 ```
 cd C:\Users\YourName\Desktop\ScoutWire
 pip install -r requirements.txt
 ```
 
-> `pip` is Python's package installer — it downloads all the libraries ScoutWire needs. This only needs to be done once.
-
-Then copy the example config file and fill it in:
+Then copy and fill in the config file:
 
 ```
 copy .env.example .env
 ```
 
-Open `.env` in Notepad (or any text editor) and fill in your values:
+Open `.env` and fill in your values:
 
 ```
 TELEGRAM_API_ID=12345678
 TELEGRAM_API_HASH=your_api_hash_here
 TELEGRAM_PHONE=+2348012345678
-GROQ_API_KEY=gsk_your_groq_key_here
-GROQ_MODEL=llama-3.1-8b-instant
+
+GEMINI_API_KEY=AIzaSy_your_key_here
+GEMINI_MODEL=gemini-2.5-flash
+
+GROQ_API_KEY=gsk_your_key_here
+GROQ_FALLBACK_MODEL=llama-3.3-70b-versatile
+
+SERPER_API_KEY=your_serper_key_here
+
 TARGET_CHAT=-1001234567890
 QUIZMASTER_USER_ID=987654321
 ```
 
-You'll fill in `TARGET_CHAT` and `QUIZMASTER_USER_ID` in the next two steps.
+You'll fill in `TARGET_CHAT` and `QUIZMASTER_USER_ID` in the next steps.
 
 ---
 
 ## Step 3 — Find the quiz group's chat ID
 
-Run this script to list all Telegram chats your account can see:
-
 ```
 python scripts/list_chats.py
 ```
 
-The first time you run any script, Telethon will ask you to log in:
+The first time, Telethon will ask you to log in:
 
 ```
-Please enter your phone (or bot token): +2348012345678
+Please enter your phone: +2348012345678
 Please enter the code you received: 12345
 ```
 
-Enter your phone number, then enter the code Telegram sends you via SMS or the Telegram app. If you have 2-step verification enabled, you'll also be asked for your cloud password.
-
-After login, you'll see a list like:
+You'll see a list like:
 
 ```
                ID  Name
@@ -118,35 +123,40 @@ After login, you'll see a list like:
        987654321  John (DM)
 ```
 
-Copy the ID of your quiz group (it will be a large negative number for groups). Set it as `TARGET_CHAT` in `.env`.
+Copy the quiz group's ID (large negative number) and set it as `TARGET_CHAT` in `.env`.
 
-> Your login is saved to `session/user.session`. You won't be asked to log in again.
+> Your login is saved to `session/user.session`. You won't be asked again.
 
 ---
 
 ## Step 4 — Find the quizmaster's user ID
 
-Run this to watch who sends messages in the chat:
-
 ```
-python scripts/list_senders.py -1001234567890 120
+python scripts/find_quizmaster.py
 ```
 
-Replace `-1001234567890` with your actual `TARGET_CHAT`. This listens for 120 seconds and prints every sender's numeric ID and name as messages arrive. Ask the quizmaster to send a message during the window.
+This scans the last 50 messages in `TARGET_CHAT` and instantly prints every sender's numeric ID and display name — no waiting, no username needed:
 
 ```
-Listening on chat -1001234567890 for 120s …
-Ask the quizmaster to send a message now.
+Scanning last 50 messages in chat -1001234567890 …
 
      Numeric ID  Display name
---------------------------------------------------
+-------------------------------------------------------
       111222333  QuizMaster Dave
-      444555666  Regular Player
+      444555666  John Smith
+      777888999  Sarah Jones
+
+Found 3 unique sender(s) in the last 50 messages.
+
+Copy the quizmaster's numeric ID and add it to your .env:
+  QUIZMASTER_USER_ID=111222333
 ```
 
-Copy the quizmaster's numeric ID and set it as `QUIZMASTER_USER_ID` in `.env`.
+If the quizmaster hasn't posted recently, scan further back:
 
-> We use the numeric ID instead of @username because usernames can be changed, which would silently break the filter. Numeric IDs are permanent.
+```
+python scripts/find_quizmaster.py -1001234567890 200
+```
 
 ---
 
@@ -156,68 +166,63 @@ Copy the quizmaster's numeric ID and set it as `QUIZMASTER_USER_ID` in `.env`.
 python -m backend.main
 ```
 
-You'll see startup logs in the terminal:
+Startup output:
 
 ```
-03:05:11 [INFO] uvicorn — Started server process
-03:05:11 [INFO] uvicorn — Waiting for application startup.
-03:05:13 [INFO] Telegram: logged in. Monitoring chat -1001234567890
+============================================================
+ScoutWire started — monitoring chat -1001234567890
+Quizmaster ID: 111222333
+Primary LLM:   gemini-2.5-flash
+Fallback:      Serper + llama-3.3-70b-versatile
+Hotkey:        F9 — paste last answer into focused window
+Stop:          Ctrl+C
+============================================================
 ```
 
-Open your browser to:
+When the quizmaster posts a question:
 
 ```
-http://localhost:8000
+14:07:42 📨 [1/3] Quizmaster message received | Q15 from QuizMaster Dave (ID 111222333)
+14:07:42          Question: Which club won the 1999-2000 La Liga?
+14:07:42 🤖 [2/3] Sending to answer engine …
+14:07:43    ✅ Gemini responded in 487ms → 'Real Madrid'
+14:07:43 ✅ [3/3] Answer ready | Q15 → Real Madrid
+14:07:43 📋 Copied to clipboard — press F9 in Telegram to paste.
 ```
 
-Click **"Start Listening"** in the browser. Now when the quizmaster posts a question, you'll see this in the terminal:
+Click into your Telegram chat and press **F9** — the answer is typed for you.
 
-```
-03:07:42 [INFO] 📨 [1/3] Quizmaster message received | Q15 from QuizMaster Dave (ID 111222333)
-03:07:42 [INFO]         Question: Which club won the 1999-2000 La Liga?
-03:07:42 [INFO] 🤖 [2/3] Sending to Groq (llama-3.1-8b-instant) …
-03:07:42 [INFO]    ↳ Groq responded in 380ms
-03:07:42 [INFO] ✅ [3/3] Answer ready | Q15 → Real Madrid won the 1999-2000 La Liga title.
-```
-
-And the answer appears in your browser immediately — tap to copy, paste into Telegram.
-
-To stop the bot, press **Ctrl+C** in the terminal.
+To stop: **Ctrl+C**.
 
 ---
 
 ## Troubleshooting
 
-**`python` is not recognized as a command**
-You didn't tick "Add Python to PATH" during installation. Re-run the Python installer, choose "Modify", and tick the PATH option.
+**`Missing required environment variable: GEMINI_API_KEY`**
+Open `.env` and add your Gemini API key. See Step 1B above.
 
-**`pip install` gives an error about permissions**
-Try: `pip install --user -r requirements.txt`
+**`python` is not recognized**
+You didn't tick "Add Python to PATH" during installation. Re-run the installer and tick it.
 
-**`Missing required environment variable: X`**
-Open `.env` and make sure every variable has a value. No quotes needed around values.
+**`database is locked` error on startup**
+Another ScoutWire process is running (or crashed and left the session locked). Run:
+```
+taskkill /F /IM python.exe
+del session\user.session
+```
+Then run again — you'll be asked to log in once.
 
-**`SessionPasswordNeededError` during login**
-Your Telegram account has 2-step verification. Enter your cloud password when prompted.
+**F9 doesn't paste**
+Make sure ScoutWire is still running in the terminal (not stopped). The hotkey only works while the process is alive.
 
-**The browser shows "Reconnecting…" and never connects**
-The backend isn't running. Make sure `python -m backend.main` is running in the terminal and there are no errors printed.
+**Gemini hits rate limits mid-quiz**
+The fallback (Serper + Groq) kicks in automatically. Free tier is 10 requests/minute on Gemini — plenty for a typical quiz spread over 30+ minutes.
 
-**Answers are coming from the wrong person**
-Double-check `QUIZMASTER_USER_ID` in `.env`. Run `scripts/list_senders.py` again and confirm the numeric ID.
-
-**`ModuleNotFoundError: No module named 'telethon'`**
+**`ModuleNotFoundError: No module named 'google'`**
 Run `pip install -r requirements.txt` from inside the ScoutWire folder.
 
 ---
 
 ## Telegram ToS note
 
-ScoutWire operates as a **userbot** — it uses your personal Telegram account to read messages, not a BotFather bot.
-
-It stays within acceptable use because:
-- It is **strictly read-only** — it never sends, forwards, or reacts to any message.
-- All responses are **manually copy-pasted** by you.
-- It runs **locally on your machine** only.
-
-You are responsible for ensuring your use complies with Telegram's Terms of Service.
+ScoutWire operates as a **userbot** — it uses your personal Telegram account to read messages, not a BotFather bot. It is **strictly read-only** — it never sends, forwards, or reacts to any message. You are responsible for ensuring your use complies with Telegram's Terms of Service.

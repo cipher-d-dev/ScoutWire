@@ -6,11 +6,11 @@ Import `settings` from this module anywhere in the backend.
 
 Usage:
     from backend.config import settings
-    print(settings.GROQ_MODEL)
+    print(settings.GEMINI_API_KEY)
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -45,15 +45,19 @@ class Settings:
     TELEGRAM_API_HASH: str
     TELEGRAM_PHONE: str  # E.164 format, e.g. +447700900000
 
-    # --- Groq credentials (from https://console.groq.com) ---
-    GROQ_API_KEY: str
-    GROQ_MODEL: str
+    # --- Gemini (primary LLM) ---
+    GEMINI_API_KEY: str
+    GEMINI_MODEL: str  # default: gemini-2.5-flash
 
-    # --- Serper search (from https://serper.dev) ---
+    # --- Groq (fallback LLM, used with Serper search results) ---
+    GROQ_API_KEY: str
+    GROQ_FALLBACK_MODEL: str  # default: llama-3.3-70b-versatile
+
+    # --- Serper search (fallback RAG) ---
     SERPER_API_KEY: str
 
     # --- Bot targeting ---
-    TARGET_CHAT: int       # numeric Telegram chat/channel ID
+    TARGET_CHAT: int         # numeric Telegram chat/channel ID
     QUIZMASTER_USER_ID: int  # numeric Telegram user ID — permanent, unlike @username
 
 
@@ -63,8 +67,10 @@ def _load_settings() -> Settings:
         TELEGRAM_API_ID=_require_int("TELEGRAM_API_ID"),
         TELEGRAM_API_HASH=_require("TELEGRAM_API_HASH"),
         TELEGRAM_PHONE=_require("TELEGRAM_PHONE"),
+        GEMINI_API_KEY=_require("GEMINI_API_KEY"),
+        GEMINI_MODEL=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         GROQ_API_KEY=_require("GROQ_API_KEY"),
-        GROQ_MODEL=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        GROQ_FALLBACK_MODEL=os.getenv("GROQ_FALLBACK_MODEL", "llama-3.3-70b-versatile"),
         SERPER_API_KEY=_require("SERPER_API_KEY"),
         TARGET_CHAT=_require_int("TARGET_CHAT"),
         QUIZMASTER_USER_ID=_require_int("QUIZMASTER_USER_ID"),
