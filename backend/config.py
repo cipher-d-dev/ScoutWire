@@ -17,7 +17,6 @@ load_dotenv()
 
 
 def _require(name: str) -> str:
-    """Return the env var value, or raise a descriptive error if it's missing."""
     value = os.getenv(name)
     if not value:
         raise EnvironmentError(
@@ -28,7 +27,6 @@ def _require(name: str) -> str:
 
 
 def _require_int(name: str) -> int:
-    """Return the env var as an int, or raise a descriptive error."""
     raw = _require(name)
     try:
         return int(raw)
@@ -40,29 +38,28 @@ def _require_int(name: str) -> int:
 
 @dataclass(frozen=True)
 class Settings:
-    # --- Telegram credentials (from https://my.telegram.org) ---
+    # --- Telegram ---
     TELEGRAM_API_ID: int
     TELEGRAM_API_HASH: str
-    TELEGRAM_PHONE: str  # E.164 format, e.g. +447700900000
+    TELEGRAM_PHONE: str
 
     # --- Gemini (primary LLM) ---
     GEMINI_API_KEY: str
-    GEMINI_MODEL: str  # default: gemini-2.5-flash
+    GEMINI_MODEL: str
 
-    # --- Groq (fallback LLM, used with Serper search results) ---
+    # --- Groq (fallback LLM) ---
     GROQ_API_KEY: str
-    GROQ_FALLBACK_MODEL: str  # default: llama-3.3-70b-versatile
+    GROQ_FALLBACK_MODEL: str
 
-    # --- Serper search (fallback RAG) ---
+    # --- Serper (fallback search) ---
     SERPER_API_KEY: str
 
     # --- Bot targeting ---
-    TARGET_CHAT: int         # numeric Telegram chat/channel ID
-    QUIZMASTER_USER_ID: int  # numeric Telegram user ID — permanent, unlike @username
+    TARGET_CHAT: int
+    QUIZMASTER_USER_ID: int
 
 
 def _load_settings() -> Settings:
-    """Read all env vars and return a validated Settings instance."""
     return Settings(
         TELEGRAM_API_ID=_require_int("TELEGRAM_API_ID"),
         TELEGRAM_API_HASH=_require("TELEGRAM_API_HASH"),
@@ -77,7 +74,4 @@ def _load_settings() -> Settings:
     )
 
 
-# Module-level singleton — imported by the rest of the backend.
-# Loading happens once at import time; a missing var fails immediately
-# rather than silently at runtime.
 settings = _load_settings()

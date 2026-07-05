@@ -1,22 +1,16 @@
 """
 backend/orchestrator.py
 
-Hybrid answer engine: Gemini 2.5 Flash (primary) with Serper + Groq fallback.
+Answer engine: Gemini 2.5 Flash (primary) → Serper + Groq 70b (fallback).
 
 Flow:
     get_answer(question)
-        ├── Gemini 2.5 Flash              (~400-700ms, uses training knowledge)
-        │     ↓ on error / rate-limit / empty response / timeout
-        └── Serper web search → Groq 70b  (~2-4s, grounded in live results)
-
-Groq is used (not Gemini) in the fallback so rate limits on Gemini
-do not affect the fallback path. Groq free tier is effectively unlimited
-for quiz use (30 req/min, 14,400/day).
+        ├── Gemini 2.5 Flash              (~400-700ms)
+        │     ↓ on error / rate-limit / empty / timeout
+        └── Serper search → Groq 70b      (~2-4s, grounded in live results)
 
 Public API:
     async get_answer(question: str, on_fast_result=None) -> str
-        on_fast_result: optional async callback(answer) — not used in this
-                        architecture but kept for API compatibility with main.py
 """
 
 import asyncio
@@ -62,7 +56,6 @@ _GEMINI_SYSTEM = (
 
 
 async def _gemini_answer(question: str, context_hint: str) -> str:
-    """Query Gemini 2.5 Flash. Returns answer string or raises on failure."""
     from backend.config import settings
 
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -78,12 +71,14 @@ async def _gemini_answer(question: str, context_hint: str) -> str:
             max_output_tokens=150,
         ),
     )
-    # Use candidates directly to avoid truncation from response.text shortcut
+
+    # Read candidates directly to avoid truncation from response.text shortcut
     text = ""
     if response.candidates:
         for part in response.candidates[0].content.parts:
             text += part.text or ""
     text = text.strip()
+
     if not text:
         raise ValueError("Gemini returned empty response")
     return text
@@ -142,7 +137,7 @@ async def _serper_search(client: httpx.AsyncClient, query: str) -> str:
 
         for r in data.get("organic", [])[:3]:
             snippet = r.get("snippet", "").strip()
-            title = r.get("title", "").strip()
+            title   = r.get("title",   "").strip()
             if snippet:
                 lines.append(f"- {title}: {snippet}")
 
@@ -183,7 +178,7 @@ async def _groq_answer(
 
     payload = {
         "model": settings.GROQ_FALLBACK_MODEL,
-        "max_tokens": 40,
+        "max_tokens": 60,
         "temperature": 0,
         "messages": [
             {"role": "system", "content": _GROQ_SYSTEM},
@@ -217,8 +212,8 @@ async def _serper_groq_pipeline(question: str, context_hint: str) -> str:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         search_results = await _serper_search(client, query)
         if not search_results:
-            log.warning("   ⚠️  [fallback] Serper returned nothing — trying Groq alone")
-        log.info("   🔍 [fallback] Search done — sending to Groq (%s)", "llama-3.3-70b-versatile")
+            log.warning("   ⚠️  [fallback] Serper returned nothing — Groq using own knowledge")
+        log.info("   🔍 [fallback] Search done — sending to Groq")
         answer = await _groq_answer(client, question, search_results, context_hint)
 
     return answer
@@ -230,7 +225,7 @@ async def _serper_groq_pipeline(question: str, context_hint: str) -> str:
 
 async def get_answer(
     question: str,
-    on_fast_result=None,  # kept for API compatibility, not used here
+    on_fast_result=None,
 ) -> str:
     """
     Try Gemini 2.5 Flash first. Fall back to Serper + Groq if Gemini
@@ -260,10 +255,9 @@ async def get_answer(
 
     except Exception as exc:
         elapsed = (time.perf_counter() - t0) * 1000
-        # Surface rate limit clearly
         msg = str(exc)
         if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-            log.warning("   ⚠️  Gemini rate limit hit (%.0fms) — falling back to Serper + Groq", elapsed)
+            log.warning("   ⚠️  Gemini rate limit (%.0fms) — falling back to Serper + Groq", elapsed)
         else:
             log.warning("   ⚠️  Gemini error (%.0fms): %s — falling back", elapsed, exc)
 

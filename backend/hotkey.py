@@ -49,16 +49,9 @@ _POST_PASTE   = 0.15    # seconds to wait after typing before releasing (150ms)
 # ---------------------------------------------------------------------------
 
 def _beep_ready() -> None:
-    """
-    Loud, distinct 3-tone ascending alert — unmistakable "answer ready" signal.
-    Plays on a daemon thread so it never blocks the pipeline.
-    """
+    """Single loud beep — answer is ready to paste."""
     try:
-        winsound.Beep(600,  120)   # low
-        time.sleep(0.05)
-        winsound.Beep(900,  120)   # mid
-        time.sleep(0.05)
-        winsound.Beep(1200, 250)   # high — held longer for emphasis
+        winsound.Beep(1000, 400)
     except Exception:
         pass
 
